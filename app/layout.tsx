@@ -14,7 +14,7 @@ export default function RootLayout({
 }>) {
     return (
         <html lang="en" className="dark">
-            <body className="pb-20 md:pb-0 md:pt-16">
+            <body className="md:pt-16">
                 <Navigation />
                 {children}
             </body>

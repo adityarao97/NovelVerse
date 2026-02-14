@@ -105,7 +105,7 @@ export default function NovelChatbot({ animeTitle, episodeTitle, content }: Nove
             {!isOpen && (
                 <button
                     onClick={() => setIsOpen(true)}
-                    className="fixed bottom-6 right-6 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white p-4 rounded-full shadow-2xl transition-all hover:scale-110 z-40"
+                    className="fixed bottom-6 right-6 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white p-4 rounded-full shadow-2xl transition-all hover:scale-110 z-50"
                     aria-label="Open chat"
                 >
                     <MessageCircle className="w-6 h-6" />
@@ -114,7 +114,7 @@ export default function NovelChatbot({ animeTitle, episodeTitle, content }: Nove
 
             {/* Chat Window */}
             {isOpen && (
-                <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col z-40 max-w-[calc(100vw-3rem)]">
+                <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col z-50 max-w-[calc(100vw-3rem)]">
                     {/* Header */}
                     <div className="bg-gradient-to-r from-purple-600 to-blue-600 p-4 rounded-t-xl flex items-center justify-between">
                         <div className="flex items-center gap-2">

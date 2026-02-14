@@ -47,31 +47,8 @@ const Navigation = () => {
                 </div>
             </nav>
 
-            {/* Mobile Navigation - Bottom Bar */}
-            <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-lg border-t border-gray-800 z-50">
-                <div className="flex items-center justify-around px-2 py-3 pb-safe">
-                    {navItems.map((item) => {
-                        const Icon = item.icon;
-                        const active = isActive(item.href);
+            {/* Mobile Navigation - Bottom Bar (Removed for immersive reading) */}
 
-                        return (
-                            <Link
-                                key={item.name}
-                                href={item.href}
-                                className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-all ${active
-                                    ? "text-blue-500"
-                                    : "text-gray-400 hover:text-white"
-                                    }`}
-                            >
-                                <Icon size={24} strokeWidth={active ? 2.5 : 2} />
-                                <span className={`text-xs ${active ? "font-semibold" : "font-normal"}`}>
-                                    {item.name}
-                                </span>
-                            </Link>
-                        );
-                    })}
-                </div>
-            </nav>
         </>
     );
 };
