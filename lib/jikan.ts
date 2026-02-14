@@ -540,7 +540,7 @@ export async function getAnimeImages(anime: Anime): Promise<{
         }
 
         const result = {
-            poster: tmdbShow.poster_path ? getTMDBImageUrl(tmdbShow.poster_path, "w500") || jikanImage : jikanImage,
+            poster: tmdbShow.poster_path ? getTMDBImageUrl(tmdbShow.poster_path, "w780") || jikanImage : jikanImage,
             backdrop: tmdbShow.backdrop_path ? getTMDBImageUrl(tmdbShow.backdrop_path, "original") || jikanImage : jikanImage,
         };
 
