@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
         // Use Gemini 2.5 Flash (web search not yet supported in SDK types)
         const model = genAI.getGenerativeModel({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.5-flash-lite',
         });
 
         // Build context-aware prompt

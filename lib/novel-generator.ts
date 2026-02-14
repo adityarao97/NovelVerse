@@ -137,7 +137,7 @@ export async function generateNovel(
     console.log(`🤖 Generating ${options.length} novel for Episode ${episode.mal_id}...`);
 
     // Use Gemini 1.5 Flash for fast, high-quality generation
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
     const result = await model.generateContent({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
