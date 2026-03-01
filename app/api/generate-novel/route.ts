@@ -1,26 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAnimeById, getAnimeEpisodes, getEnhancedEpisodes } from '@/lib/jikan';
+import { getAnimeById, getAnimeEpisodes, getEnhancedEpisodes, getAnimeRelations } from '@/lib/jikan';
 import { generateNovel, generateBatchNovels, type NovelLength, type EpisodeEnrichment } from '@/lib/novel-generator';
 import { fetchEpisodeSubtitleContext } from '@/lib/subtitles';
 import { fetchWikipediaEpisodePlot } from '@/lib/wikipedia';
 
 /**
- * Detect which season number a given anime corresponds to.
- * Uses the jikan episode MAL IDs and the anime title to estimate season.
- * This is a heuristic — for JJK S3, the title "The Culling Game Part 1" implies season 3.
+ * Get the base/root show title, stripping season-specific subtitles.
+ * e.g. "Jujutsu Kaisen: The Culling Game Part 1" → "Jujutsu Kaisen"
+ *       "Attack on Titan: The Final Season" → "Attack on Titan"
+ *       "Demon Slayer" → "Demon Slayer"
  */
-function detectSeasonNumber(animeTitle: string): number {
-    const patterns = [
-        /Season\s+(\d+)/i,
-        /(\d+)(?:st|nd|rd|th)\s+Season/i,
-        /Part\s+(\d+)/i,
-        /:\s*(\d+)$/,
-    ];
-    for (const p of patterns) {
-        const m = animeTitle.match(p);
-        if (m) return parseInt(m[1]);
+function getBaseTitle(title: string): string {
+    // Strip everything after a colon (season-specific subtitle)
+    const colonIdx = title.indexOf(':');
+    if (colonIdx > 0) {
+        return title.substring(0, colonIdx).trim();
     }
-    return 1;
+    return title;
+}
+
+/**
+ * Determine the TRUE ordinal season number by traversing the prequel chain.
+ * Only traverses TV series prequels — skips movies, OVAs, specials.
+ * 
+ * Why: JJK S1 has "Jujutsu Kaisen 0 Movie" as a prequel (type: anime).
+ * Without filtering, S3 would be counted as S4.
+ * 
+ * Season 1 has no TV prequels → depth 1
+ * Season 2 has S1 as prequel → depth 2
+ * Season 3 has S2 → S2 has S1 → depth 3
+ */
+async function getSeriesSeasonNumber(animeId: number): Promise<number> {
+    const visited = new Set<number>();
+    let depth = 1;
+
+    // Cache a minimal set of anime types from Jikan
+    const typeCache = new Map<number, string>();
+
+    async function getAnimeType(id: number): Promise<string> {
+        if (typeCache.has(id)) return typeCache.get(id)!;
+        try {
+            const res = await fetch(`https://api.jikan.moe/v4/anime/${id}`, { next: { revalidate: 86400 } });
+            if (!res.ok) return 'Unknown';
+            const data = await res.json();
+            const type: string = data.data?.type || 'Unknown';
+            typeCache.set(id, type);
+            return type;
+        } catch {
+            return 'Unknown';
+        }
+    }
+
+    async function countPrequels(id: number): Promise<void> {
+        if (visited.has(id)) return;
+        visited.add(id);
+
+        try {
+            const relations = await getAnimeRelations(id);
+            const prequelRelation = relations.find(r => r.relation === 'Prequel');
+            const animePrequels = prequelRelation?.entry.filter(e => e.type === 'anime') || [];
+
+            for (const prequel of animePrequels) {
+                if (visited.has(prequel.mal_id)) continue;
+
+                // Only count TV series prequels — skip movies, OVAs, Specials
+                const prequelType = await getAnimeType(prequel.mal_id);
+                if (prequelType !== 'TV') {
+                    console.log(`⏭️  Skipping non-TV prequel: "${prequel.name}" [${prequelType}]`);
+                    continue;
+                }
+
+                depth++;
+                await countPrequels(prequel.mal_id);
+                break; // Only follow the first TV prequel to avoid branching
+            }
+        } catch {
+            // Silently fail, use what we have
+        }
+    }
+
+    await countPrequels(animeId);
+    console.log(`📺 Detected season number for anime ${animeId}: Season ${depth}`);
+    return depth;
 }
 
 /**
@@ -28,14 +89,16 @@ function detectSeasonNumber(animeTitle: string): number {
  * Both are fetched in parallel and degrade gracefully on failure
  */
 async function fetchEnrichment(
-    animeTitle: string,
-    seasonNumber: number,
-    episodeNumber: number,
+    baseTitle: string,        // Root show name, e.g., "Jujutsu Kaisen"
+    seasonNumber: number,     // True ordinal season in the series, e.g., 3
+    episodeNumber: number,    // Episode number within this season (Jikan's mal_id), e.g., 2
     episodeTitle?: string
 ): Promise<EpisodeEnrichment> {
+    console.log(`🔍 Enrichment: "${baseTitle}" S${seasonNumber}E${episodeNumber} ("${episodeTitle || 'Unknown'}")`);
+
     const [subtitleResult, wikiResult] = await Promise.allSettled([
-        fetchEpisodeSubtitleContext(animeTitle, seasonNumber, episodeNumber),
-        fetchWikipediaEpisodePlot(animeTitle, seasonNumber, episodeNumber, episodeTitle),
+        fetchEpisodeSubtitleContext(baseTitle, seasonNumber, episodeNumber),
+        fetchWikipediaEpisodePlot(baseTitle, seasonNumber, episodeNumber, episodeTitle),
     ]);
 
     return {
@@ -71,26 +134,20 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'No matching episodes found' }, { status: 404 });
         }
 
-        // Determine season number for subtitle/Wikipedia lookups
         const animeDisplayTitle = anime.title_english || anime.title;
-        const seasonNumber = detectSeasonNumber(animeDisplayTitle);
 
-        console.log(`🔍 Enrichment lookup: "${animeDisplayTitle}" Season ${seasonNumber}`);
+        // --- FIX: Get base title (strip subtitle) and TRUE season number from prequel chain ---
+        const baseTitle = getBaseTitle(animeDisplayTitle);
+        const seasonNumber = await getSeriesSeasonNumber(animeId);
+
+        console.log(`🔍 Enrichment config: base="${baseTitle}", season=${seasonNumber} (from="${animeDisplayTitle}")`);
 
         // Generate novels
         let novels;
 
         if (selectedEpisodes.length === 1) {
-            // Single episode: fetch enrichment then generate
             const ep = selectedEpisodes[0];
-            console.log(`⚡ Fetching enrichment for Episode ${ep.mal_id}...`);
-
-            const enrichment = await fetchEnrichment(
-                animeDisplayTitle,
-                seasonNumber,
-                ep.mal_id, // Jikan uses absolute episode numbers (e.g. 1-12 for S3)
-                ep.title || undefined
-            );
+            const enrichment = await fetchEnrichment(baseTitle, seasonNumber, ep.mal_id, ep.title || undefined);
 
             console.log(`📊 Enrichment result — Wikipedia: ${enrichment.wikipediaPlot ? '✅' : '❌'}, Subtitles: ${enrichment.subtitleDialogue ? '✅' : '❌'}`);
 
@@ -103,12 +160,11 @@ export async function POST(request: NextRequest) {
             );
             novels = [{ ...novel, episode: ep }];
         } else {
-            // Multiple episodes: fetch all enrichments in parallel (to save time)
             console.log(`⚡ Fetching enrichment for ${selectedEpisodes.length} episodes in parallel...`);
 
             const enrichmentResults = await Promise.allSettled(
                 selectedEpisodes.map(ep =>
-                    fetchEnrichment(animeDisplayTitle, seasonNumber, ep.mal_id, ep.title || undefined)
+                    fetchEnrichment(baseTitle, seasonNumber, ep.mal_id, ep.title || undefined)
                 )
             );
 
